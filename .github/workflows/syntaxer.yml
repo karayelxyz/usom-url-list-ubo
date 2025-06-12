@@ -13,18 +13,37 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Download and format domain list
+    - name: Download and format domain list (with retry)
       run: |
-        # Download the original list
-        curl -sL https://www.usom.gov.tr/url-list.txt -o raw.txt
+        for i in {1..3}; do
+          echo "Download attempt $i..."
+          curl -sL https://www.usom.gov.tr/url-list.txt -o raw.txt && break
+          echo "Download failed, retrying in 5 seconds..."
+          sleep 5
+        done
 
-        # Prepend '||' and append '^' to each line
+        if [ ! -f raw.txt ]; then
+          echo "Failed to download file after 3 attempts."
+          exit 1
+        fi
+
         awk '{print "||"$0"^"}' raw.txt > domains.txt
 
-    - name: Commit and push changes
+    - name: Commit and push changes (with retry)
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+
         git add domains.txt
-        git commit -m "Automatically updated domain list"
-        git push
+
+        if git diff --cached --quiet; then
+          echo "No changes to commit."
+          exit 0
+        fi
+
+        for i in {1..3}; do
+          echo "Git push attempt $i..."
+          git commit -m "Automatically updated domain list" && git push && break
+          echo "Git push failed, retrying in 5 seconds..."
+          sleep 5
+        done
