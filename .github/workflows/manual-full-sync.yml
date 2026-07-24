@@ -39,20 +39,23 @@ jobs:
             exit 1
           fi
 
+          # +1 for safety: catch data that shifted from last page during fetch
+          MAX_PAGE=$((PAGE_COUNT + 1))
+
           echo "Total records (API): $TOTAL_COUNT"
           echo "API reported pageCount: $PAGE_COUNT"
+          echo "Fetching pages 0 to $MAX_PAGE (pageCount + 1 for safety)"
 
           > all_urls.txt
           TOTAL_FETCHED=0
-          page=0
 
-          while true; do
-            echo "Fetching page $page..."
+          for (( page=0; page<=MAX_PAGE; page++ )); do
+            echo "Fetching page $page / $MAX_PAGE..."
 
             attempt=1
             max_attempts=5
             success=false
-            PAGE_FILE="/tmp/page_${page}.json"
+            PAGE_FILE="/tmp/page.json"
 
             while [[ $attempt -le $max_attempts ]]; do
               HTTP_CODE=$(curl -sSL -o "$PAGE_FILE" -w "%{http_code}" --max-time 120 \
@@ -69,15 +72,16 @@ jobs:
             done
 
             if [[ "$success" != "true" ]]; then
-              echo "ERROR: Failed to fetch page $page after $max_attempts attempts"
-              exit 1
+              echo "WARN: Failed to fetch page $page after $max_attempts attempts, skipping."
+              rm -f "$PAGE_FILE"
+              continue
             fi
 
             COUNT=$(jq -r '.models | length' "$PAGE_FILE")
             if [[ "$COUNT" -eq 0 ]]; then
-              echo "Empty page reached."
+              echo "  Page $page: empty, skipping."
               rm -f "$PAGE_FILE"
-              break
+              continue
             fi
 
             jq -r '.models[].url' "$PAGE_FILE" >> all_urls.txt
@@ -87,7 +91,6 @@ jobs:
 
             echo "  Page $page: fetched $COUNT (total: $TOTAL_FETCHED)"
 
-            page=$((page + 1))
             sleep 0.5
           done
 
